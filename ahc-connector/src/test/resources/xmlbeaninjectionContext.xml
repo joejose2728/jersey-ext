@@ -1,0 +1,20 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                        http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd">
+    <context:component-scan base-package="com.ebayinc.platform"/>
+
+    <bean id="configbean" class="org.apache.commons.configuration.MapConfiguration" primary="true">
+        <constructor-arg>
+            <map>
+                <entry key="dummy.baseUrl" value="http://localhost:12781" />
+                <entry key="sslsvc.baseUrl" value="https://localhost:9090/testsvc/v1" />
+                <entry key="sslsvc2.baseUrl" value="https://localhost:9090/testsvc/v1" />
+            </map>
+        </constructor-arg>
+    </bean>
+    <bean id="mockconfiglistener" class="org.mockito.Mockito" factory-method="mock">
+        <constructor-arg value="com.ebayinc.platform.config.ConfigListener" />
+    </bean>
+</beans>
