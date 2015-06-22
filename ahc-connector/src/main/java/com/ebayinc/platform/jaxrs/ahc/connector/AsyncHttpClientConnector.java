@@ -15,7 +15,6 @@ import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response.StatusType;
 
 import org.apache.commons.io.output.DeferredFileOutputStream;
-import org.asynchttpclient.AsyncCompletionHandler;
 import org.asynchttpclient.AsyncHandler;
 import org.asynchttpclient.AsyncHttpClient;
 import org.asynchttpclient.AsyncHttpClientConfig;
@@ -221,7 +220,7 @@ public class AsyncHttpClientConnector implements Connector {
 			ClientResponse responseContext = buildResponse(jerseyRequest, ahcRequest, this);
 			//let the async connector callback know that the response processing is complete
 			asyncConnectorCallback.response(responseContext);
-			return response;
+			return super.onCompleted(response);
 		}
 		
 		@Override

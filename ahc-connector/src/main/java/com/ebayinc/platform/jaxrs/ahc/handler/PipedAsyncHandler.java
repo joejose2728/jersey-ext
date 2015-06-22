@@ -15,6 +15,7 @@ import org.asynchttpclient.Response;
 public class PipedAsyncHandler extends AsyncCompletionHandler<Response> {
 
 	private static final int PIPE_SIZE = 1024 * 1024 * 5; //5 MB
+	
 	private PipedInputStream pipedInputStream;
 	private int statusCode;
 	private FluentCaseInsensitiveStringsMap ahcHeaders;

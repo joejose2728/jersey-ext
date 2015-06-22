@@ -16,7 +16,6 @@ public class SseResource {
 	@Produces(SseFeature.SERVER_SENT_EVENTS)
 	public EventOutput getIt() {
 		final EventOutput eventOutput = new EventOutput();
-		System.out.println("Request received");
 		new Thread(new Runnable() {
 
 			@Override
