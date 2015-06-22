@@ -16,6 +16,7 @@ public class SseResource {
 	@Produces(SseFeature.SERVER_SENT_EVENTS)
 	public EventOutput getIt() {
 		final EventOutput eventOutput = new EventOutput();
+		System.out.println("Request received");
 		new Thread(new Runnable() {
 
 			@Override
@@ -28,7 +29,7 @@ public class SseResource {
 						builder.data("Hello Earth!");
 
 						eventOutput.write(builder.build());		
-						Thread.sleep(1000); //sleep for 1 second
+						Thread.sleep(2000); //sleep for 2 seconds
 					}
 				}
 				catch (Exception e) {

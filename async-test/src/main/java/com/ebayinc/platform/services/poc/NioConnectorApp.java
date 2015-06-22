@@ -7,6 +7,7 @@ import java.util.concurrent.Future;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.InvocationCallback;
+import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 
@@ -15,6 +16,10 @@ import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.rx.RxClient;
 import org.glassfish.jersey.client.rx.rxjava.RxObservable;
 import org.glassfish.jersey.client.rx.rxjava.RxObservableInvoker;
+import org.glassfish.jersey.media.sse.EventListener;
+import org.glassfish.jersey.media.sse.EventSource;
+import org.glassfish.jersey.media.sse.InboundEvent;
+import org.glassfish.jersey.media.sse.SseFeature;
 
 import rx.Observable;
 import rx.functions.Action1;
@@ -27,6 +32,8 @@ public class NioConnectorApp {
 	
 	private static final String URL = "http://www.json-generator.com/api/json/get/cvJIUtuoOa?indent=2";
 	private static final String URL2 = "http://www.json-generator.com/api/json/get/cvaKzUtMRK?indent=2";
+	private static final String URL3 = "http://localhost:8080/philae/services/v1/events";
+	
 	private static Client sClient = null;
 	
 	public static void main(String[] args) {
@@ -34,8 +41,26 @@ public class NioConnectorApp {
 		asyncInvocationWithCallback();
 		rxInvocation();
 		sseInvocation();
+		asyncInvocationWOAhc();
 	}
 	
+	private static void asyncInvocationWOAhc() {
+		// TODO Auto-generated method stub
+		Client client = ClientBuilder.newClient();
+		Future<Response> responseFuture = client.target(URL).request().async().get();
+		long start = System.currentTimeMillis();
+		while (!responseFuture.isDone());
+		long span = System.currentTimeMillis() - start;
+		
+		try {
+			print(responseFuture.get(), span, "Async w/o AHC," + Thread.currentThread().getName());
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		} catch (ExecutionException e) {
+			e.printStackTrace();
+		}
+	}
+
 	private static void asyncInvocation(){
 		Client client = configure();
 		Future<Response> responseFuture = client.target(URL).request().async().get();
@@ -67,7 +92,7 @@ public class NioConnectorApp {
 		});
 	}
 	
-	private static void rxInvocation(){
+	private static void rxInvocation() {
 		Client client = configure();
 		RxClient<RxObservableInvoker> rxClient = RxObservable.from(client);
 		Observable<List<Employee>> observable = rxClient.target(URL2).request().rx().get(new GenericType<List<Employee>>(){});
@@ -93,7 +118,27 @@ public class NioConnectorApp {
 	}
 
 	private static void sseInvocation() {
+		final long sleep = 15000;
+		Client client = ClientBuilder.newClient().register(SseFeature.class);
+		WebTarget target = client.target(URL3);
+		EventSource eventSource = EventSource.target(target).build();
 		
+		EventListener eventListener = new EventListener() {
+			
+			public void onEvent(InboundEvent inboundEvent) {
+				System.out.println("threadId: "+ Thread.currentThread().getName() +"\nevent: " + inboundEvent.getName() + "\ndata: " + inboundEvent.readData(String.class));
+			}
+		};
+		eventSource.register(eventListener);
+		eventSource.open();
+		
+		/*try {
+			Thread.sleep(sleep);//wait for ten seconds
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		} 
+		
+		eventSource.close();*/
 	}
 	
 	private static void print(Response response, long span, String qualifier){
@@ -111,7 +156,7 @@ public class NioConnectorApp {
 		return sClient;
 	}
 	
-	public static class Employee{
+	public static class Employee {
 		private String _id;
 		private String name;
 		private String gender;

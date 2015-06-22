@@ -2,17 +2,16 @@ package com.ebayinc.platform.jaxrs.ahc.connector;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response.Status;
 import javax.ws.rs.core.Response.StatusType;
 
 import org.apache.commons.io.output.DeferredFileOutputStream;
@@ -32,8 +31,11 @@ import org.glassfish.jersey.client.ClientResponse;
 import org.glassfish.jersey.client.spi.AsyncConnectorCallback;
 import org.glassfish.jersey.client.spi.Connector;
 import org.glassfish.jersey.message.internal.OutboundMessageContext.StreamProvider;
+import org.glassfish.jersey.message.internal.Statuses;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.ebayinc.platform.jaxrs.ahc.handler.PipedAsyncHandler;
 
 public class AsyncHttpClientConnector implements Connector {
 
@@ -52,38 +54,27 @@ public class AsyncHttpClientConnector implements Connector {
 		Request httpRequest = null;
 		try {
 			httpRequest = buildRequest(request);
-			Future<Response> response = processRequest(httpRequest, null);
-			final Response asyncresp = response.get();
-			
-			ClientResponse responseContext = processResponse(request, httpRequest, asyncresp);
+			ClientResponse responseContext = processRequest(httpRequest, request);
 			return responseContext;
-		} catch (IOException | ExecutionException| InterruptedException e) {
+		} catch (IOException e) {
 			throw new ProcessingException("Unable to perform call", e);
 		}
 	}
 
+	private ClientResponse processRequest(Request ahcRequest, ClientRequest requestContext) throws IOException {
+		PipedAsyncHandler pipedAsyncHandler = new PipedAsyncHandler();
+		while (!pipedAsyncHandler.headersReceived());
+		
+		return buildResponse(requestContext, ahcRequest, pipedAsyncHandler);
+	}
+	
 	public Future<?> apply(final ClientRequest request, final AsyncConnectorCallback callback) {
 		try {
 			final Request httpRequest = buildRequest(request);
 			//make use of AHC's callback based async request 
-			Future<Response> responseFuture = processRequest(httpRequest, new AsyncCompletionHandler<Response>() {
-
-				@Override
-				public Response onCompleted(Response response) throws Exception {
-					ClientResponse responseContext = processResponse(request, httpRequest, response);
-					
-					//let the async connector callback know that the response processing is complete
-					callback.response(responseContext);
-					return response;
-				}
-				
-				@Override
-				public void onThrowable(Throwable t) {
-					super.onThrowable(t);
-					//let the async connector callback know that the response processing has failed
-					callback.failure(t);
-				}
-			});
+			final PipedAsyncHandler pipedAsyncHandler 
+			             = new CallbackBasedPipedAsyncHandler(request, httpRequest, callback);
+			Future<Response> responseFuture = processRequest(httpRequest, pipedAsyncHandler);
 			return responseFuture;
 		} catch (IOException e) {
 			callback.failure(e);
@@ -100,27 +91,37 @@ public class AsyncHttpClientConnector implements Connector {
 		httpClient.closeAsynchronously();
 	}
 	
-	private Future<Response> processRequest(Request httpRequest, AsyncHandler<Response> asyncHandler) throws IOException{
+	private Future<Response> processRequest(Request httpRequest, AsyncHandler<Response> asyncHandler) 
+			throws IOException {
 		logger.debug("About to execute the http call: " + httpRequest.getUrl());
+		   
 		return asyncHandler != null? 
 				httpClient.prepareRequest(httpRequest).execute(asyncHandler) :
 				httpClient.prepareRequest(httpRequest).execute();
 	}
 	
-	private ClientResponse processResponse(ClientRequest requestContext, Request httpRequest, Response httpResponse) throws IOException {
+	private ClientResponse buildResponse(ClientRequest requestContext, Request httpRequest,
+			PipedAsyncHandler pipedAsyncHandler) throws IOException {
 		logger.debug("Http call executed " + httpRequest.getUrl());
 
-		StatusType statusType = getStatus(httpResponse);
-		ClientResponse responseContext = new ClientResponse(statusType,requestContext);
-		//extract response headers
-		extractHeaders(httpResponse, responseContext);
-		//set the response entity stream
-		responseContext.setEntityStream(httpResponse.getResponseBodyAsStream());
-		
-		return responseContext;
+		return buildResponse(pipedAsyncHandler.getStatusCode(), 
+				pipedAsyncHandler.getInputStream(), 
+				pipedAsyncHandler.getAhcHeaders(), 
+				requestContext);
 	}
 
-	private Request buildRequest(ClientRequest request) throws IOException{
+	private ClientResponse buildResponse(int statusCode, InputStream responseStream,
+			FluentCaseInsensitiveStringsMap responseHeaders, ClientRequest requestContext) {
+		StatusType statusType = Statuses.from(statusCode);
+		ClientResponse responseContext = new ClientResponse(statusType,requestContext);
+		//set the response entity stream
+		responseContext.setEntityStream(responseStream);
+		//extract response headers
+		extractHeaders(responseHeaders, responseContext);
+		return responseContext;
+	}
+	
+	private Request buildRequest(ClientRequest request) throws IOException {
 		String method = request.getMethod();
 
 		if ("GET".equalsIgnoreCase(method) && request.getEntity() != null){
@@ -158,7 +159,7 @@ public class AsyncHttpClientConnector implements Connector {
 		return ret;
 	}
 
-	private BodyGenerator getBodyGenerator(final ClientRequest request) throws IOException{
+	private BodyGenerator getBodyGenerator(final ClientRequest request) throws IOException {
 		File tempfile = new File(fileUploadTempFileDir, generateUniqueTempFileName(request));
 		final DeferredFileOutputStream output = new DeferredFileOutputStream(buffersizethreshold, tempfile); 
 		try{
@@ -188,22 +189,46 @@ public class AsyncHttpClientConnector implements Connector {
 		return request.hashCode() + "_" + System.currentTimeMillis();
 	}
 
-	private StatusType getStatus(Response asyncresp) {
-		int statusCode = asyncresp.getStatusCode();
-		return Status.fromStatusCode(statusCode);
-	}
-
 	/**
 	 * Adapts the AsyncHttpClient response headers to Jersey response headers
 	 * @param {@link Response} response
 	 * @param {@link ClientResponse} responseContext
 	 */
-	private static void extractHeaders(Response response, ClientResponse responseContext)
-	{
-		Set<Map.Entry<String, List<String>>> entries = response.getHeaders().entrySet();
+	private static void extractHeaders(FluentCaseInsensitiveStringsMap ahcHeaders, ClientResponse responseContext) {
+		Set<Map.Entry<String, List<String>>> entries = ahcHeaders.entrySet();
 		MultivaluedMap<String, String> headers = responseContext.getHeaders();
 		for (Map.Entry<String, List<String>> entry : entries){
 			headers.addAll(entry.getKey(), entry.getValue());
+		}
+	}
+	
+	private class CallbackBasedPipedAsyncHandler extends PipedAsyncHandler {
+		
+		private AsyncConnectorCallback asyncConnectorCallback;
+		private Request ahcRequest;
+		private ClientRequest jerseyRequest;
+		
+		public CallbackBasedPipedAsyncHandler(ClientRequest jerseyRequest, 
+				Request ahcRequest, 
+				AsyncConnectorCallback asyncConnectorCallback) {
+			this.asyncConnectorCallback = asyncConnectorCallback;
+			this.jerseyRequest = jerseyRequest;
+			this.ahcRequest = ahcRequest;
+		}
+		
+		@Override
+		public Response onCompleted(Response response) throws Exception {
+			ClientResponse responseContext = buildResponse(jerseyRequest, ahcRequest, this);
+			//let the async connector callback know that the response processing is complete
+			asyncConnectorCallback.response(responseContext);
+			return response;
+		}
+		
+		@Override
+		public void onThrowable(Throwable t) {
+			super.onThrowable(t);
+			//let the async connector callback know that the response processing has failed
+			asyncConnectorCallback.failure(t);
 		}
 	}
 }
