@@ -20,7 +20,7 @@ public class AsyncHttpClientConnectorProvider implements ConnectorProvider {
 	
 	public Connector getConnector(Client client, Configuration runtimeConfig) {
 		//TODO: Is there something that we can achieve with 'client' and 'runtimeConfig'. Don't know at this point.
-		return new AsyncHttpClientConnector(transport);
+		return new AsyncHttpClientConnector2(transport);
 	}
 
 }

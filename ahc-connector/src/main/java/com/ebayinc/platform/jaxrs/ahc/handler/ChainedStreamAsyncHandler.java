@@ -1,9 +1,7 @@
 package com.ebayinc.platform.jaxrs.ahc.handler;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
-import java.util.List;
 
 import org.asynchttpclient.AsyncCompletionHandler;
 import org.asynchttpclient.FluentCaseInsensitiveStringsMap;
@@ -12,15 +10,13 @@ import org.asynchttpclient.HttpResponseHeaders;
 import org.asynchttpclient.HttpResponseStatus;
 import org.asynchttpclient.Response;
 
-public class PipedAsyncHandler extends AsyncCompletionHandler<Response> {
+import com.ebayinc.platform.jaxrs.ahc.io.ChainedByteArrayInputStream;
 
-	private static final int PIPE_SIZE = 1024 * 10; // 10 KB
+public class ChainedStreamAsyncHandler extends AsyncCompletionHandler<Response> {
 
-	private PipedInputStream pipedInputStream;
+	private ChainedByteArrayInputStream chainedByteArrayIS;
 	private int statusCode;
 	private FluentCaseInsensitiveStringsMap ahcHeaders;
-
-	protected PipedOutputStream pipedOutputStream;
 
 	@Override
 	public org.asynchttpclient.AsyncHandler.State onStatusReceived(
@@ -33,45 +29,21 @@ public class PipedAsyncHandler extends AsyncCompletionHandler<Response> {
 	public org.asynchttpclient.AsyncHandler.State onHeadersReceived(
 			HttpResponseHeaders headers) throws Exception {
 		this.ahcHeaders = headers.getHeaders();
-
-		List<String> header = ahcHeaders.get("Content-Length");
-		int pipeSize = PIPE_SIZE;
-		if (header != null && !header.isEmpty()) {
-			try {
-				pipeSize = Integer.parseInt(header.get(0));
-			} catch (NumberFormatException nfe) {
-				pipeSize = PIPE_SIZE;
-			}
-		}
-		/*
-		 * Delay input stream creation until response header is received, so
-		 * that we can use the content-length header (if present). 
-		 * What if the content-length header is large?//TODO
-		 */
-		this.pipedInputStream = new PipedInputStream(pipedOutputStream,
-				pipeSize);
 		return super.onHeadersReceived(headers);
 	}
 
-	@Override
-	public Response onCompleted(Response response) throws Exception {
-		this.pipedOutputStream.flush();
-		this.pipedOutputStream.close();
-		return response;
-	}
-
-	public PipedAsyncHandler() {
-		this.pipedOutputStream = new PipedOutputStream();
+	public ChainedStreamAsyncHandler() {
+		this.chainedByteArrayIS = new ChainedByteArrayInputStream();
 	}
 
 	@Override
 	public org.asynchttpclient.AsyncHandler.State onBodyPartReceived(HttpResponseBodyPart bodyPart) throws Exception {
-		this.pipedOutputStream.write(bodyPart.getBodyPartBytes());
+		this.chainedByteArrayIS.chain((ByteArrayInputStream) bodyPart.readBodyPartBytes());
 		return State.CONTINUE;
 	}
 
 	public InputStream getInputStream() {
-		return this.pipedInputStream;
+		return this.chainedByteArrayIS;
 	}
 
 	public boolean headersReceived() {
@@ -84,5 +56,10 @@ public class PipedAsyncHandler extends AsyncCompletionHandler<Response> {
 
 	public FluentCaseInsensitiveStringsMap getAhcHeaders() {
 		return this.ahcHeaders;
+	}
+
+	@Override
+	public Response onCompleted(Response response) throws Exception {
+		return response;
 	}
 }

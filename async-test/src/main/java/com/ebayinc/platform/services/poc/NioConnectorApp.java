@@ -32,20 +32,32 @@ public class NioConnectorApp {
 	
 	private static final String URL = "http://www.json-generator.com/api/json/get/cvJIUtuoOa?indent=2";
 	private static final String URL2 = "http://www.json-generator.com/api/json/get/cvaKzUtMRK?indent=2";
-	private static final String URL3 = "http://localhost:8080/philae/services/v1/events";
+	private static final String URL3 = "http://52.11.54.32:8080/philae/services/v1/events";
 	
 	private static Client sClient = null;
-	
+	private static boolean print = true;
+	private static int times = 20;
 	public static void main(String[] args) {
+		warmup();
 		asyncInvocation();
 		asyncInvocationWithCallback();
-		rxInvocation();
-		sseInvocation();
+		//sseInvocation();
+		/*rxInvocation();*/
 		asyncInvocationWOAhc();
 	}
 	
+	private static void warmup() {
+		print = false;
+		for (int i=0;i<times;i++) {
+			asyncInvocation();
+			asyncInvocationWithCallback();
+			asyncInvocationWOAhc();
+		}
+		print = true;
+		System.out.println("Warming up done...");
+	}
+
 	private static void asyncInvocationWOAhc() {
-		// TODO Auto-generated method stub
 		Client client = ClientBuilder.newClient();
 		Future<Response> responseFuture = client.target(URL).request().async().get();
 		long start = System.currentTimeMillis();
@@ -118,7 +130,7 @@ public class NioConnectorApp {
 	}
 
 	private static void sseInvocation() {
-		final long sleep = 15000;
+		final long sleep = 20000;
 		Client client = ClientBuilder.newClient().register(SseFeature.class);
 		WebTarget target = client.target(URL3);
 		EventSource eventSource = EventSource.target(target).build();
@@ -132,16 +144,19 @@ public class NioConnectorApp {
 		eventSource.register(eventListener);
 		eventSource.open();
 		
-		/*try {
-			Thread.sleep(sleep);//wait for ten seconds
+		try {
+			Thread.sleep(sleep);//wait for 20 seconds
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		} 
 		
-		eventSource.close();*/
+		eventSource.close();
 	}
 	
 	private static void print(Response response, long span, String qualifier){
+		if (!print) {
+			return;
+		}
 		//System.out.println("Out: " + response.readEntity(String.class) + "\n");
 		System.out.println("<ResponseTime,MethodCall,ThreadId> := <" + span + " ms," + qualifier + ">");
 	}

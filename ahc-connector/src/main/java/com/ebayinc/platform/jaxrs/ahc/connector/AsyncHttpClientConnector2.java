@@ -34,12 +34,12 @@ import org.glassfish.jersey.message.internal.Statuses;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.ebayinc.platform.jaxrs.ahc.handler.PipedAsyncHandler;
+import com.ebayinc.platform.jaxrs.ahc.handler.ChainedStreamAsyncHandler;
 
-public class AsyncHttpClientConnector implements Connector {
+public class AsyncHttpClientConnector2 implements Connector {
 
 	private static Logger logger = LoggerFactory
-			.getLogger(AsyncHttpClientConnector.class);
+			.getLogger(AsyncHttpClientConnector2.class);
 
 	private File fileUploadTempFileDir = new File(
 			System.getProperty("java.io.tmpdir"));
@@ -47,7 +47,7 @@ public class AsyncHttpClientConnector implements Connector {
 
 	private AsyncHttpClient httpClient;
 
-	/* package */AsyncHttpClientConnector(AsyncHttpClient httpClient) {
+	/* package */AsyncHttpClientConnector2(AsyncHttpClient httpClient) {
 		this.httpClient = httpClient;
 	}
 
@@ -65,10 +65,10 @@ public class AsyncHttpClientConnector implements Connector {
 
 	private ClientResponse processRequest(Request ahcRequest,
 			ClientRequest requestContext) throws IOException {
-		PipedAsyncHandler pipedAsyncHandler = new PipedAsyncHandler();
-		while (!pipedAsyncHandler.headersReceived());
+		ChainedStreamAsyncHandler asyncHandler = new ChainedStreamAsyncHandler();
+		while (!asyncHandler.headersReceived());
 
-		return buildResponse(requestContext, ahcRequest, pipedAsyncHandler);
+		return buildResponse(requestContext, ahcRequest, asyncHandler);
 	}
 
 	public Future<?> apply(final ClientRequest request,
@@ -76,10 +76,9 @@ public class AsyncHttpClientConnector implements Connector {
 		try {
 			final Request httpRequest = buildRequest(request);
 			// make use of AHC's callback based async request
-			final PipedAsyncHandler pipedAsyncHandler = new CallbackBasedPipedAsyncHandler(
+			final ChainedStreamAsyncHandler asynHandler = new CallbackBasedAsyncHandler(
 					request, httpRequest, callback);
-			Future<Response> responseFuture = processRequest(httpRequest,
-					pipedAsyncHandler);
+			Future<Response> responseFuture = processRequest(httpRequest, asynHandler);
 			return responseFuture;
 		} catch (IOException e) {
 			callback.failure(e);
@@ -109,10 +108,11 @@ public class AsyncHttpClientConnector implements Connector {
 			Request httpRequest, AsyncHandler<Response> asyncHandler)
 			throws IOException {
 		logger.debug("Http call executed " + httpRequest.getUrl());
-		PipedAsyncHandler pipedAsyncHandler = (PipedAsyncHandler) asyncHandler;
-		return buildResponse(pipedAsyncHandler.getStatusCode(),
-				pipedAsyncHandler.getInputStream(),
-				pipedAsyncHandler.getAhcHeaders(), requestContext);
+		ChainedStreamAsyncHandler cbaisAsynHandler
+		                 = (ChainedStreamAsyncHandler) asyncHandler;
+		return buildResponse(cbaisAsynHandler.getStatusCode(),
+				cbaisAsynHandler.getInputStream(),
+				cbaisAsynHandler.getAhcHeaders(), requestContext);
 	}
 
 	private ClientResponse buildResponse(int statusCode,
@@ -221,13 +221,13 @@ public class AsyncHttpClientConnector implements Connector {
 		}
 	}
 
-	private class CallbackBasedPipedAsyncHandler extends PipedAsyncHandler {
+	private class CallbackBasedAsyncHandler extends ChainedStreamAsyncHandler {
 
 		private AsyncConnectorCallback asyncConnectorCallback;
 		private Request ahcRequest;
 		private ClientRequest jerseyRequest;
 
-		public CallbackBasedPipedAsyncHandler(ClientRequest jerseyRequest,
+		public CallbackBasedAsyncHandler(ClientRequest jerseyRequest,
 				Request ahcRequest,
 				AsyncConnectorCallback asyncConnectorCallback) {
 			this.asyncConnectorCallback = asyncConnectorCallback;
